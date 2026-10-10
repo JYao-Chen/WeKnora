@@ -5116,6 +5116,7 @@ export default {
     }
   },
   input: {
+    more: 'Другие действия',
     addModel: 'Добавить модель',
     placeholder: 'Задайте вопрос или опишите задачу…',
     agentMode: 'Умный анализ',

@@ -4,6 +4,10 @@ const port = Number(process.env.PLAYWRIGHT_PORT || 5186)
 export default defineConfig({
   testDir: './e2e',
   expect: { timeout: 15000 },
+  projects: [
+    { name: 'phone', grepInvert: /@desktop/, use: { isMobile: true, hasTouch: true } },
+    { name: 'desktop', grep: /@desktop/, use: { isMobile: false, hasTouch: false } },
+  ],
   fullyParallel: false,
   workers: 1,
   use: {

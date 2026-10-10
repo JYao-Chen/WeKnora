@@ -608,7 +608,6 @@ export default {
           desc: '{\'@\'}をクリックして、ナレッジベースやファイルを1つ以上選択してください。選択した範囲のみが回答に使用され、未選択の場合は現在のエージェント設定が適用されます。'
         },
         input: {
-    more: 'その他の操作',
           title: '質問を入力',
           desc: '知りたいことを入力するか、上部の推奨質問をクリックするとすぐに始められます。'
         },
@@ -2732,6 +2731,7 @@ export default {
     }
   },
   wikiMobile: {
+    legend: '凡例と操作',
     contents: '目次',
     zoomIn: '拡大',
     zoomOut: '縮小',
@@ -2920,6 +2920,7 @@ export default {
     }
   },
   input: {
+    more: 'その他の操作',
     addModel: 'モデルを追加',
     placeholder: '質問や依頼内容を入力…',
     agentMode: 'スマート推論',

@@ -19,7 +19,6 @@ export async function mockApp(page: Page) {
     for (const key of ['kb-list:v2', 'kb-create:v3', 'tenant-models:v1', 'kb-detail:v1', 'chat:v1', 'agent-list:v1', 'agent-create:v1']) {
       localStorage.setItem('weknora:contextual-guide-' + key, '1')
     }
-    localStorage.setItem('sidebar_collapsed', 'true')
   }, { user, tenant })
   await page.route('**/api/v1/**', async route => {
     const path = new URL(route.request().url()).pathname
@@ -39,6 +38,20 @@ export async function mockApp(page: Page) {
     else if (path.includes('/knowledge') && path.includes('/files')) data = { data: [], total: 0 }
     else if (path.includes('/sessions')) data = []
     else if (path.includes('/config') || path.includes('/preferences') || path.includes('/settings')) data = {}
+    else if (['/api/v1/system/capabilities', '/api/v1/system/info', '/api/v1/me/browser'].includes(path)) data = {}
+    else if (['/api/v1/shared-knowledge-bases', '/api/v1/agents', '/api/v1/shared-agents', '/api/v1/web-search-providers', '/api/v1/im-channels', '/api/v1/embed-channels', '/api/v1/mcp-services', '/api/v1/skills', '/api/v1/builtin-prompts', '/api/v1/tenants/storage-backends'].includes(path)) data = []
+    else if (/^\/api\/v1\/knowledge-bases\/[^/]+\/(knowledge|tags|folders|capabilities|faq|recommended-questions)$/.test(path)) data = []
+    else if (/^\/api\/v1\/tenants\/kv\//.test(path)) data = {}
+    else if (path.endsWith('/suggested-questions')) data = { questions: [] }
+    else if (path === '/api/v1/me/invitations/pending-count') data = { count: 0 }
+    else if (path === '/api/v1/system/parser-engines') data = []
+    else if (/^\/api\/v1\/knowledge-bases\/[^/]+\/knowledge\/(folders|tags|stats)$/.test(path)) data = []
+    else if (/^\/api\/v1\/knowledge-bases\/[^/]+\/faq\/(entries|tags|stats)$/.test(path)) data = []
+    else if (['/api/v1/user/favorites','/api/v1/user/recents'].includes(path)) data = []
+    else if (path.endsWith('/wiki/index')) data = { intro: '', version: 1, groups: [] }
+    else if (path === '/api/v1/system/storage-engine-status') data = { engines: [], minio_env_available: false }
+    else if (path.endsWith('/wiki/issues')) data = { issues: [], total: 0 }
+    else throw new Error(`Unhandled fixture API: ${route.request().method()} ${path}`)
     await route.fulfill({ json: { success: true, data, total: Array.isArray(data) ? data.length : 0 } })
   })
 }

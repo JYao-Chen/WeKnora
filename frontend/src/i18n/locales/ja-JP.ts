@@ -2731,6 +2731,11 @@ export default {
       parseCurrentKnowledgeBaseFailed: '現在のナレッジベースの解析に失敗しました'
     }
   },
+  wikiMobile: {
+    contents: '目次',
+    zoomIn: '拡大',
+    zoomOut: '縮小',
+  },
   common: {
     add: '追加',
     me: '自分',

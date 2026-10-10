@@ -49,7 +49,7 @@ test('changing agent or source tenant clears the old inline error', async () => 
   assert.equal(submissionIssue.value, '')
 })
 
-for (const mode of ['normal', 'embedded', 'after', 'inject']) {
+for (const mode of ['normal', 'embedded', 'after', 'inject', 'pending-session']) {
   test(`${mode} send clears the draft and restores focus after the DOM update`, async () => {
     const effects = [], ticks = []
     const textarea = {
@@ -59,7 +59,7 @@ for (const mode of ['normal', 'embedded', 'after', 'inject']) {
     }
     const context = {
       submissionIssue: { value: "" },
-      props: { isReplying: ['after', 'inject'].includes(mode), canSteer: true, embeddedMode: mode === 'embedded' },
+      props: { preserveDraftUntilNavigation: mode === 'pending-session', isReplying: ['after', 'inject'].includes(mode), canSteer: true, embeddedMode: mode === 'embedded' },
       uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
       allSelectedItems: { value: [] }, selectedModelId: { value: 'model' },
       selectedAgent: { value: { config: {} } },
@@ -73,10 +73,10 @@ for (const mode of ['normal', 'embedded', 'after', 'inject']) {
     }
     const send = vm.runInNewContext(ts.transpile(`${focusCode}\n${sendCode}\ncreateSession`), context)
     await send('hello', mode === 'inject' ? 'inject' : 'after')
-    assert.deepEqual(effects, [[context.props.isReplying ? 'steer-msg' : 'send-msg'], ['clear']])
+    assert.deepEqual(effects, mode === 'pending-session' ? [['send-msg']] : [[context.props.isReplying ? 'steer-msg' : 'send-msg'], ['clear']])
     for (const resolve of ticks) resolve()
     await new Promise(setImmediate)
-    assert.deepEqual(effects.at(-1), ['focus', true])
+    if (mode !== 'pending-session') assert.deepEqual(effects.at(-1), ['focus', true])
   })
 }
 

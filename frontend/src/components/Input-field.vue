@@ -526,6 +526,7 @@ const props = defineProps({
     type: Boolean,
     required: false
   },
+  preserveDraftUntilNavigation: { type: Boolean, default: false },
   composerLocked: {
     type: Boolean,
     default: false
@@ -2142,6 +2143,8 @@ const createSession = async (
 
   emit('send-msg', val, selectedModelId.value, mentionedItems, imageFiles, attachmentFiles, options);
 
+  if (props.preserveDraftUntilNavigation) return;
+
   // Clean up image previews
   uploadedImages.value.forEach(img => URL.revokeObjectURL(img.preview));
   uploadedImages.value = [];
@@ -2764,7 +2767,7 @@ defineExpose({
 
       <p v-if="submissionIssue" class="composer-submission-error" role="status">{{ submissionIssue }}</p>
       <!-- 实际输入框 -->
-      <t-textarea ref="textareaRef" v-model="query" :placeholder="t('input.placeholder')" name="description" :autosize="true"
+      <t-textarea ref="textareaRef" v-model="query" :readonly="composerLocked" :placeholder="t('input.placeholder')" name="description" :autosize="true"
         @keydown="onKeydown" @input="onInput" @compositionstart="onCompositionStart" @compositionend="onCompositionEnd"
         @paste="onPaste" />
 

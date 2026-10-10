@@ -7085,6 +7085,7 @@ export default {
     }
   },
   knowledgeBase: {
+    more: '更多操作',
     tagAddAction: '添加标签',
     documentCount: '{count} 个文档',
     filters: '筛选',

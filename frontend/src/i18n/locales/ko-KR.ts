@@ -7083,6 +7083,7 @@ export default {
     }
   },
   knowledgeBase: {
+    more: '추가 작업',
     tagAddAction: '태그 추가',
     documentCount: '문서 {count}개',
     filters: '필터',

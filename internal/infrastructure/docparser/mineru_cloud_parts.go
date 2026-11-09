@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Tencent/WeKnora/internal/infrastructure/checkpoint"
 	"github.com/Tencent/WeKnora/internal/logger"
 	"github.com/Tencent/WeKnora/internal/types"
 )
@@ -82,22 +83,45 @@ func splitCloudPDF(ctx context.Context, content []byte) ([]pdfPart, error) {
 	return parts, nil
 }
 
+type cloudJobCheckpoint struct{ BatchID string }
+
 func (c *MinerUCloudReader) readCloudPart(ctx context.Context, req *types.ReadRequest) (*types.ReadResult, error) {
-	batch, url, err := c.applyUploadURLs(ctx, req.FileName, filepath.Ext(req.FileName))
+	key := ReadCheckpointKey(req)
+	var saved types.ReadResult
+	if checkpoint.Load("mineru-results-v090", key, &saved) {
+		logger.Infof(ctx, "[MinerUCloud] Resuming completed part %s", req.FileName)
+		return &saved, nil
+	}
+	var job cloudJobCheckpoint
+	checkpoint.Load("mineru-jobs", key, &job)
+	if job.BatchID == "" {
+		batch, url, err := c.applyUploadURLs(ctx, req.FileName, filepath.Ext(req.FileName))
+		if err != nil {
+			return nil, err
+		}
+		if err = c.uploadFile(ctx, url, req.FileContent); err != nil {
+			return nil, err
+		}
+		job.BatchID = batch
+		if err = checkpoint.Save("mineru-jobs", key, job); err != nil {
+			return nil, fmt.Errorf("save OCR job checkpoint: %w", err)
+		}
+	}
+	md, refs, contentList, err := c.pollBatchResult(ctx, job.BatchID)
 	if err != nil {
-		return nil, fmt.Errorf("MinerU Cloud apply upload URLs: %w", err)
+		// A cloud timeout can resume polling. A terminal failed job must be resubmitted.
+		if strings.Contains(err.Error(), "task failed:") {
+			if p := checkpoint.Path("mineru-jobs", key); p != "" {
+				_ = os.Remove(p)
+			}
+		}
+		return nil, err
 	}
-	if err = c.uploadFile(ctx, url, req.FileContent); err != nil {
-		return nil, fmt.Errorf("MinerU Cloud file upload: %w", err)
+	result := &types.ReadResult{MarkdownContent: md, ImageRefs: refs, SourceBlocks: minerUSourceBlocks(md, contentList, req.FileType)}
+	if err = checkpoint.Save("mineru-results-v090", key, result); err != nil {
+		return nil, fmt.Errorf("save OCR result checkpoint: %w", err)
 	}
-	md, refs, contentList, err := c.pollBatchResult(ctx, batch)
-	if err != nil {
-		return nil, fmt.Errorf("MinerU Cloud poll: %w", err)
-	}
-	return &types.ReadResult{
-		MarkdownContent: md, ImageRefs: refs,
-		SourceBlocks: minerUSourceBlocks(md, contentList, req.FileType),
-	}, nil
+	return result, nil
 }
 
 func (c *MinerUCloudReader) readSplitPDF(ctx context.Context, req *types.ReadRequest) (*types.ReadResult, error) {

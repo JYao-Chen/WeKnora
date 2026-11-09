@@ -1,6 +1,12 @@
 <script setup lang="ts">
+import ResponsiveToolbarGroup from '@/components/ResponsiveToolbarGroup.vue'
+import { useResponsive } from '@/composables/useResponsive'
+const { isMobile } = useResponsive()
+const mobileFolderOpen = ref(false)
+const mobileHeaderExpanded = ref(false)
+
+import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick, defineAsyncComponent } from "vue";
 import { useAssistantDataChange } from '@/utils/assistantDataChange';
-import { ref, onMounted, onUnmounted, watch, reactive, computed, nextTick } from "vue";
 import { MessagePlugin } from "tdesign-vue-next";
 import DocContent from "@/components/doc-content.vue";
 import useKnowledgeBase from '@/hooks/useKnowledgeBase';
@@ -55,7 +61,7 @@ import BatchTagDialog from './components/BatchTagDialog.vue';
 import type { KnowledgeProcessOverrides } from '@/types/knowledgeProcess';
 import { useUploadConfirmStore, type UploadConfirmResult } from '@/stores/uploadConfirm';
 import { useUploadTasksStore } from '@/stores/uploadTasks';
-import WikiBrowser from './wiki/WikiBrowser.vue';
+const WikiBrowser = defineAsyncComponent(() => import('./wiki/WikiBrowser.vue'));
 import ImageGallery from './gallery/ImageGallery.vue';
 import { getWikiStats } from '@/api/wiki';
 import {
@@ -192,6 +198,7 @@ const scheduleWikiStatusProbes = () => {
   })
 }
 watch([kbId, isWiki], ([newKbId, newIsWiki]) => {
+  mobileHeaderExpanded.value = false;
   stopWikiStatusPolling()
   clearWikiStatusProbes()
   wikiStatus.value = { pendingTasks: 0, isActive: false, pendingIssues: 0 }
@@ -992,6 +999,7 @@ const loadFolderTree = async (kbIdValue: string) => {
 };
 
 const handleFolderSelect = (path: string) => {
+  mobileFolderOpen.value = false;
   if (selectedFolderPath.value === path) return;
   selectedFolderPath.value = path;
 };
@@ -1058,6 +1066,7 @@ const handleFolderRename = async ({ from, to }: { from: string; to: string }) =>
 };
 
 const handleFolderTreeCollapsedChange = (value: boolean) => {
+  if (isMobile.value) { mobileFolderOpen.value = !value; return; }
   folderTreeCollapsed.value = value;
   writeStoredFlag(FOLDER_TREE_COLLAPSED_KEY, value);
 };
@@ -2466,7 +2475,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                     <t-skeleton animation="gradient" :row-col="[{ width: '120px', height: '20px' }]" />
                   </template>
                   <template v-else>
-                    <span>{{ kbInfo.name }}</span>
+                    <span :title="kbInfo.name">{{ kbInfo.name }}</span>
                     <t-icon name="chevron-down" />
                   </template>
                 </button>
@@ -2494,6 +2503,11 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
             </h2>
             <!-- 标题行右侧的动作锚点：聚拢"信息"和"设置"两个圆形按钮。 -->
             <div class="kb-title-actions">
+              <button v-if="isMobile && kbInfo?.description" type="button" class="kb-settings-button mobile-description-toggle"
+                :aria-label="$t(mobileHeaderExpanded ? 'common.collapse' : 'common.expand')"
+                :aria-expanded="mobileHeaderExpanded" aria-controls="kb-description" @click="mobileHeaderExpanded = !mobileHeaderExpanded">
+                <t-icon :name="mobileHeaderExpanded ? 'chevron-up' : 'chevron-down'" size="16px" />
+              </button>
               <KBInfoPopover v-if="kbInfo && !authStore.isLiteMode" :kb-info="kbInfo"
                 :supported-file-types="[...supportedFileTypes]" />
               <t-tooltip v-if="canManage" :content="$t('knowledgeBase.settings')" placement="top">
@@ -2503,7 +2517,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
               </t-tooltip>
             </div>
           </div>
-          <p v-if="kbInfo?.description" class="document-subtitle">{{ kbInfo.description }}</p>
+          <p v-if="kbInfo?.description" id="kb-description" class="document-subtitle" :class="{ 'is-expanded': mobileHeaderExpanded }">{{ kbInfo.description }}</p>
           <p v-if="canEdit && unsupportedFileTypes.length" class="parser-hint" @click="goToParserSettings">
             <t-icon name="info-circle" class="parser-hint-icon" />
             <span>{{$t('knowledgeBase.unsupportedTypesHint', {
@@ -2533,8 +2547,8 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
       <!-- wiki/graph tabs only exist on wiki KBs; a stale tab (?tab= or one
            carried over from a previous KB) falls back to documents. -->
       <template v-if="activeKbTab === 'documents' || (!isWiki && activeKbTab !== 'gallery')">
-        <div class="knowledge-main">
-          <KbFolderTree v-if="showFolderTree && !folderTreeCollapsed" :tree="folderTree" :selected-path="selectedFolderPath"
+        <div class="knowledge-main" :class="{ 'mobile-folder-open': isMobile && mobileFolderOpen }">
+          <KbFolderTree v-if="showFolderTree && (isMobile ? mobileFolderOpen : !folderTreeCollapsed)" :tree="folderTree" :selected-path="selectedFolderPath"
             :loading="folderTreeLoading" :can-edit="canEdit" :root-label="kbInfo?.name"
             @select="handleFolderSelect" @update:collapsed="handleFolderTreeCollapsedChange"
             @rename="handleFolderRename" />
@@ -2542,7 +2556,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
             <div class="doc-card-area">
               <div class="doc-filter-bar">
                 <nav class="doc-folder-path" :aria-label="$t('knowledgeBase.folderTree.title')">
-                  <button v-if="showFolderTree && folderTreeCollapsed" type="button" class="doc-folder-path__tree-toggle"
+                  <button v-if="showFolderTree && (isMobile ? !mobileFolderOpen : folderTreeCollapsed)" type="button" class="doc-folder-path__tree-toggle"
                     :aria-expanded="false" :title="$t('knowledgeBase.folderTree.expand')"
                     :aria-label="$t('knowledgeBase.folderTree.expand')"
                     @click="handleFolderTreeCollapsedChange(false)">
@@ -2577,9 +2591,9 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                   <t-popup v-model:visible="filtersExpanded" trigger="click" placement="bottom-right"
                     overlay-class-name="document-filter-popup" :overlay-inner-style="{ padding: 0 }">
                     <button type="button" class="doc-filter-toggle" :class="{ active: filtersExpanded || activeFilterCount > 0 }"
-                      :aria-expanded="filtersExpanded" aria-controls="document-filters">
+                      :aria-label="$t('knowledgeBase.filters')" :aria-expanded="filtersExpanded" aria-controls="document-filters">
                       <t-icon name="filter" size="16px" />
-                      {{ $t('knowledgeBase.filters') }}
+                      <span class="doc-filter-label">{{ $t('knowledgeBase.filters') }}</span>
                       <span v-if="activeFilterCount" class="doc-filter-count">{{ activeFilterCount }}</span>
                     </button>
                     <template #content>
@@ -2629,6 +2643,7 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                       </section>
                     </template>
                   </t-popup>
+                  <ResponsiveToolbarGroup>
                   <button v-if="viewMode === 'grid' && (canDownloadKnowledge || canMutateKnowledge) && cardList.length"
                     type="button" class="doc-filter-toggle doc-batch-toggle" :class="{ active: batchMode }" :aria-pressed="batchMode"
                     :disabled="batchDeleting || batchReparsing || batchTagging || batchDownloading"
@@ -2683,9 +2698,10 @@ const handleKBEditorSuccess = (kbIdValue: string) => {
                       </button>
                     </t-tooltip>
                   </div>
+                  </ResponsiveToolbarGroup>
                   <div v-if="canEdit" class="doc-filter-actions">
                     <KbUploadSourceDropdown ref="uploadSourceRef" :accept-file-types="acceptFileTypes"
-                      :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="add" :trigger-label="t('knowledgeBase.addDocument')"
+                      :supported-file-types="[...supportedFileTypes]" include-manual trigger-icon="add" :trigger-label="isMobile ? '' : t('knowledgeBase.addDocument')"
                       trigger-class="content-bar-icon-btn" data-guide="kb-detail-add-doc"
                       :tooltip="t('knowledgeBase.addDocument')" placement="bottom-right" @files="handleUploadSourceFiles"
                       @url="handleUploadSourceUrl" @manual="handleManualCreate" />

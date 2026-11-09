@@ -6299,6 +6299,7 @@ export default {
     pickFailed: '无法打开所选路径',
     messages: {
       createFailed: '创建会话失败',
+      navigationError: '会话已创建，但对话页面未能打开。请重试。',
       createError: '创建会话失败，请稍后重试'
     }
   },
@@ -6507,6 +6508,10 @@ export default {
     back: '返回'
   },
   common: {
+    zoomIn: '放大',
+    zoomOut: '缩小',
+    more: '更多操作',
+    contents: '目录',
     add: '添加',
     me: '我',
     confirm: '确认',

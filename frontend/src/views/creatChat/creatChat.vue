@@ -1,11 +1,11 @@
 <template>
     <div class="dialogue-wrap">
-        <div class="dialogue-answers">
-            <div class="dialogue-title" style="--wails-draggable: drag">
+        <div class="dialogue-answers" :class="{ 'is-submitting': creatingSession }">
+            <div v-if="!creatingSession" class="dialogue-title" style="--wails-draggable: drag">
                 <span style="--wails-draggable: drag">{{ $t('createChat.title') }}</span>
             </div>
             <!-- 推荐问题 -->
-            <div ref="sqContainerRef" class="suggested-questions-container">
+            <div v-show="!creatingSession" ref="sqContainerRef" class="suggested-questions-container">
                 <!-- 骨架屏占位 -->
                 <div v-if="sqInitialLoad && suggestedQuestions.length === 0" class="suggested-questions-inner">
                     <div class="suggested-questions-title"><t-skeleton animation="gradient"
@@ -32,16 +32,20 @@
                             </p>
                         </div>
                         <div class="suggested-questions-grid">
-                            <div v-for="(item, index) in suggestedQuestions" :key="item.question"
+                            <button type="button" v-for="(item, index) in suggestedQuestions" :key="item.question"
                                 class="suggested-question-card" :class="{ 'sq-card-visible': sqCardsRevealed }"
                                 :style="{ transitionDelay: sqCardsRevealed ? `${index * 50}ms` : '0ms' }"
                                 @click="handleSuggestedQuestionClick(item)">
                                 <span class="suggested-question-text">{{ item.question }}</span>
                                 <span v-if="item.source === 'faq'" class="suggested-question-badge faq">FAQ</span>
-                            </div>
+                            </button>
                         </div>
                     </div>
                 </transition>
+            </div>
+            <div v-if="creatingSession" class="new-chat-conversation" role="log" aria-live="polite">
+                <div class="new-chat-question">{{ pendingQuestion }}</div>
+                <div class="new-chat-progress" role="status"><t-loading size="small" /><span>{{ $t('common.loading') }}</span></div>
             </div>
             <div class="create-chat-composer">
                 <div v-if="hostSandboxEnabled" class="project-dir-bar">
@@ -57,7 +61,9 @@
                     <button v-if="selectedProjectDir" type="button" class="project-dir-bar__clear"
                         :aria-label="$t('createChat.clearProject')" @click="clearProjectDir">×</button>
                 </div>
-                <InputField ref="inputFieldRef" @send-msg="sendMsg"></InputField>
+                <p v-if="creationError" class="composer-submission-error" role="alert">{{ $t(createdSessionId ? 'createChat.messages.navigationError' : 'createChat.messages.createError') }}</p>
+                <t-button v-if="creationError && createdSessionId" variant="outline" @click="retryNavigation">{{ $t('common.retry') }}</t-button>
+                <InputField ref="inputFieldRef" :composer-locked="creatingSession" @send-msg="sendMsg"></InputField>
             </div>
         </div>
     </div>
@@ -96,7 +102,9 @@ const settingsStore = useSettingsStore();
 onBeforeRouteLeave((to) => {
     // The first send carries the draft into its new session; abandoning the
     // composer must not make this a default for the next conversation.
-    if (!to.path.startsWith('/platform/chat/') || !usemenuStore.isFirstSession) {
+    if (to.path !== `/platform/chat/${createdSessionId.value}` || !usemenuStore.isFirstSession) {
+        usemenuStore.changeFirstQuery('', [], '', [], []);
+        usemenuStore.changeIsFirstSession(false);
         settingsStore.reasoningEffortOverride = '';
     }
 });
@@ -234,11 +242,16 @@ onMounted(() => {
 });
 
 const inputFieldRef = ref();
+const creatingSession = ref(false);
+const pendingQuestion = ref('');
+const creationError = ref(false);
+const createdSessionId = ref('');
 
 // The suggestion's source rides with this send to the new session's first
 // request, so the agent searches it before answering.
 const handleSuggestedQuestionClick = (item: SuggestedQuestion) => {
-    inputFieldRef.value?.triggerSend(item.question, { questionOrigin: questionOriginFromSuggestion(item) });
+    inputFieldRef.value?.prefill(item.question, { questionOrigin: questionOriginFromSuggestion(item) });
+    void inputFieldRef.value?.focusInput();
 };
 
 const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFiles: any[] = [], attachmentFiles: any[] = [], options: SendMessageOptions = {}) => {
@@ -246,6 +259,12 @@ const sendMsg = (value: string, modelId: string, mentionedItems: any[], imageFil
 }
 
 async function createNewSession(value: string, modelId: string, mentionedItems: any[] = [], imageFiles: any[] = [], attachmentFiles: any[] = [], options: SendMessageOptions = {}) {
+    if (creatingSession.value) return;
+    creatingSession.value = true;
+    creationError.value = false;
+    pendingQuestion.value = value;
+    createdSessionId.value = '';
+    const restoreDraft = () => inputFieldRef.value?.prefill(value, options);
     const selectedKbs = settingsStore.settings.selectedKnowledgeBases || [];
     const selectedFiles = settingsStore.settings.selectedFiles || [];
 
@@ -265,14 +284,21 @@ async function createNewSession(value: string, modelId: string, mentionedItems: 
     try {
         const res = await createSessions(withOptionalProjectDir(sessionData, selectedProjectDir.value));
         if (res.data && res.data.id) {
+            createdSessionId.value = res.data.id;
             await navigateToSession(res.data.id, value, modelId, mentionedItems, imageFiles, attachmentFiles, options);
         } else {
+            creationError.value = true;
+            restoreDraft();
             console.error('[createChat] Failed to create session');
             MessagePlugin.error(t('createChat.messages.createFailed'));
         }
     } catch (error) {
+        creationError.value = true;
+        restoreDraft();
         console.error('[createChat] Create session error:', error);
-        MessagePlugin.error(t('createChat.messages.createError'));
+        MessagePlugin.error(t(createdSessionId.value ? 'createChat.messages.navigationError' : 'createChat.messages.createError'));
+    } finally {
+        creatingSession.value = false;
     }
 }
 
@@ -290,7 +316,37 @@ const navigateToSession = async (sessionId: string, value: string, modelId: stri
     usemenuStore.updataMenuChildren(obj);
     usemenuStore.changeIsFirstSession(true);
     usemenuStore.changeFirstQuery(value, mentionedItems, modelId, imageFiles, attachmentFiles, options.questionOrigin ?? null);
-    router.push(`/platform/chat/${sessionId}`);
+    await openCreatedSession(sessionId);
+}
+
+async function openCreatedSession(sessionId: string) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+        const failure = await Promise.race([
+            router.push(`/platform/chat/${sessionId}`),
+            new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Chat navigation timed out')), 30_000); }),
+        ]);
+        if (failure) throw failure;
+    } catch (error) {
+        // Cancel an unfinished route load before offering a retry of this session.
+        void router.replace(route.fullPath).catch(() => {});
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function retryNavigation() {
+    if (creatingSession.value || !createdSessionId.value) return;
+    creatingSession.value = true;
+    creationError.value = false;
+    try {
+        await openCreatedSession(createdSessionId.value);
+    } catch {
+        creationError.value = true;
+    } finally {
+        creatingSession.value = false;
+    }
 }
 
 const handleKBEditorSuccess = (kbId: string) => {

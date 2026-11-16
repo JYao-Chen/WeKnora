@@ -100,11 +100,16 @@ func (s *wikiIngestService) extractCandidateSlugs(
 	}
 
 	granularity := batchCtx.ExtractionGranularity.Normalize()
+	recipe := map[string]string{
+		"Content": content, "Language": lang, "PreviousSlugs": prevSlugsText,
+		"Granularity": string(granularity), "GranularityGuidance": agent.WikiGranularityGuidance(string(granularity)),
+		"CustomInstructions": batchCtx.ExtractionInstructions, "InstructionScope": "wiki_extraction", "PromptTemplate": agent.WikiCandidateSlugPrompt,
+	}
 	extract := func(
 		ctx context.Context, segment string,
 	) (combinedExtraction, error) {
 		response, callErr := s.generateWithTemplateResult(ctx, chatModel, agent.WikiCandidateSlugPrompt, map[string]string{
-			"Content": segment, "Language": lang, "PreviousSlugs": prevSlugsText,
+			"Content": segment, "Language": lang, "PreviousSlugs": recipe["PreviousSlugs"],
 			"Granularity":         string(granularity),
 			"GranularityGuidance": agent.WikiGranularityGuidance(string(granularity)),
 			"CustomInstructions":  batchCtx.ExtractionInstructions, "InstructionScope": "wiki_extraction",
@@ -123,12 +128,7 @@ func (s *wikiIngestService) extractCandidateSlugs(
 		return result, parseErr
 	}
 	tenantID, _ := types.TenantIDFromContext(ctx)
-	runner, err := s.resumableWikiExtraction(ctx, chatModel, op, tenantID, map[string]string{
-		"Content": content, "Language": lang, "PreviousSlugs": prevSlugsText,
-		"Granularity": string(granularity), "GranularityGuidance": agent.WikiGranularityGuidance(string(granularity)),
-		"CustomInstructions": batchCtx.ExtractionInstructions, "InstructionScope": "wiki_extraction",
-		"PromptTemplate": agent.WikiCandidateSlugPrompt,
-	}, extract)
+	runner, err := s.resumableWikiExtraction(ctx, chatModel, op, tenantID, recipe, extract)
 	if err != nil {
 		return nil, nil, nil, err
 	}

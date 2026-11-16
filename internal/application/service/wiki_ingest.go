@@ -38,7 +38,7 @@ import (
 var ErrWikiIngestConcurrent = errors.New("concurrent wiki task active")
 
 const (
-	// maxContentForWiki limits the document content sent to LLM for wiki generation
+	// maxContentForWiki bounds each document segment sent to the wiki model.
 	maxContentForWiki = 32768
 
 	// --- Phase 3: concurrent per-KB batches (standard/Redis mode) ---------
@@ -51,11 +51,11 @@ const (
 	//
 	// wikiClaimStaleAfter is how long a claimed-but-undrained ingest row
 	// waits before another worker may re-claim it. It MUST exceed the asynq
-	// task Timeout for wiki:ingest (60m) so a still-running batch's rows are
+	// task Timeout for wiki:ingest so a still-running batch's rows are
 	// never stolen mid-flight — only genuinely crashed/abandoned claims are
 	// recovered. This preserves the pre-claim crash behaviour where a dead
 	// batch's undeleted rows were simply re-peeked by the next trigger.
-	wikiClaimStaleAfter = 90 * time.Minute
+	wikiClaimStaleAfter = types.WikiIngestTaskTimeout + 30*time.Minute
 
 	// wikiSlugLockPrefix guards read-modify-write on a single shared wiki
 	// page (entity/concept/summary/index) so two concurrent batches for the
@@ -69,7 +69,7 @@ const (
 	// different keys. A short-lived identity claim makes both batches use
 	// the same slug before summaries and page updates are materialized.
 	wikiIdentityClaimPrefix = "wiki:identity:"
-	wikiIdentityClaimTTL    = 2 * time.Hour
+	wikiIdentityClaimTTL    = wikiClaimStaleAfter
 	// wikiIdentityClaimScript atomically GET-or-SET (or overwrite when
 	// ARGV[3] is "1"). A valid existing slug wins and has its TTL refreshed.
 	// Missing or corrupt values are replaced so callers cannot diverge on a
@@ -172,7 +172,7 @@ return proposed
 
 	// wikiDeletedTTL bounds how long we remember a deletion. Must comfortably
 	// exceed the longest plausible ingest run (LLM extraction + reduce).
-	wikiDeletedTTL = 1 * time.Hour
+	wikiDeletedTTL = wikiClaimStaleAfter
 
 	// wikiLLMMaxAttempts is the total attempt count (initial + retries) for
 	// every LLM call routed through generateWithTemplate. 3 was chosen to
@@ -180,8 +180,9 @@ return proposed
 	// materially prolonging task runtime when the remote is genuinely down.
 	wikiLLMMaxAttempts = 3
 
-	// wikiLLMMaxTokens is the completion-token budget for every LLM call
-	// routed through generateWithTemplate. Combined wiki extraction emits a
+	// wikiLLMMaxTokens is the default completion-token budget for LLM calls
+	// routed through generateWithTemplate, unless the model has a configured
+	// MaxOutputTokens budget. Combined wiki extraction emits a
 	// single large JSON document (entities + concepts + details). When
 	// MaxTokens is left at 0, OpenAI-compatible clients omit max_tokens and
 	// providers such as DeepSeek apply a default of 8192 — long extracts are
@@ -364,8 +365,10 @@ type WikiPendingOp struct {
 	PageSlugs  []string `json:"page_slugs,omitempty"`
 	FolderIDs  []string `json:"folder_ids,omitempty"`
 
-	// dbID is set by peekPendingList from task_pending_ops.id. Zero in
-	// constructions made outside the queue (e.g. legacy tests).
+	// Extraction holds validated segment outputs until this operation finishes.
+	Extraction *wikiExtractionProgress `json:"extraction_checkpoint,omitempty"`
+	dbPayload  json.RawMessage
+	// dbID is the source row ID; zero for synthetic/non-durable operations.
 	dbID int64 `json:"-"`
 }
 
@@ -633,7 +636,7 @@ func enqueueWikiIngestTrigger(
 	t := asynq.NewTask(types.TypeWikiIngest, triggerBytes,
 		asynq.Queue(types.QueueWiki),
 		asynq.MaxRetry(wikiIngestMaxRetry),
-		asynq.Timeout(60*time.Minute),
+		asynq.Timeout(types.WikiIngestTaskTimeout),
 		asynq.ProcessIn(wikiIngestDelay),
 	)
 	if _, err := task.Enqueue(t); err != nil {
@@ -704,7 +707,7 @@ func enqueueWikiRetract(
 	t := asynq.NewTask(types.TypeWikiIngest, triggerBytes,
 		asynq.Queue(types.QueueWiki),
 		asynq.MaxRetry(wikiIngestMaxRetry),
-		asynq.Timeout(60*time.Minute),
+		asynq.Timeout(types.WikiIngestTaskTimeout),
 		asynq.ProcessIn(5*time.Second), // Retract can trigger the batch quickly
 	)
 	if _, err := task.Enqueue(t); err != nil {
@@ -1152,7 +1155,7 @@ func (s *wikiIngestService) scheduleCappedRetry(ctx context.Context, payload Wik
 	t := asynq.NewTask(types.TypeWikiIngest, b,
 		asynq.Queue(types.QueueWiki),
 		asynq.MaxRetry(wikiIngestMaxRetry),
-		asynq.Timeout(60*time.Minute),
+		asynq.Timeout(types.WikiIngestTaskTimeout),
 		asynq.ProcessIn(wikiInflightBackoff),
 		asynq.TaskID("wiki-ingest-capped-"+payload.KnowledgeBaseID),
 	)
@@ -1194,7 +1197,7 @@ func (s *wikiIngestService) scheduleStaleClaimRecheck(ctx context.Context, paylo
 	t := asynq.NewTask(types.TypeWikiIngest, b,
 		asynq.Queue(types.QueueWiki),
 		asynq.MaxRetry(wikiIngestMaxRetry),
-		asynq.Timeout(60*time.Minute),
+		asynq.Timeout(types.WikiIngestTaskTimeout),
 		asynq.ProcessIn(wikiClaimStaleAfter+wikiFollowUpDelay),
 		asynq.TaskID("wiki-ingest-recheck-"+payload.KnowledgeBaseID),
 	)
@@ -1236,6 +1239,10 @@ func (s *wikiIngestService) decodePendingRows(ctx context.Context, rows []*types
 				Op:          r.Op,
 				KnowledgeID: r.DedupKey,
 			}
+		}
+		op.dbPayload = append(json.RawMessage(nil), r.Payload...)
+		if op.Op == WikiOpIngest && op.Extraction == nil {
+			op.Extraction = &wikiExtractionProgress{}
 		}
 		op.dbID = r.ID
 		all = append(all, op)
@@ -1358,13 +1365,12 @@ func (s *wikiIngestService) requeueFailedOps(ctx context.Context, payload WikiIn
 			continue
 		}
 
-		// Exhausted in-batch retries — archive and remove. This is the
-		// terminal failure point for the op, so release its slot in the
-		// knowledge's finalizing counter (ingest ops only; retracts are
-		// for deleted knowledge that has no counter to drain). The
-		// matching +1 was seeded by KnowledgePostProcess.SetFinalizing.
-		if op.Op == WikiOpIngest {
-			s.finalizeWikiSubtask(ctx, op.KnowledgeID, op.Attempt)
+		// Archive before removing the operation or releasing its finalizing
+		// slot: a failed archive must not discard durable extraction progress.
+		if op.Extraction != nil && len(op.Extraction.Segments) > 0 && s.deadLetterRepo == nil {
+			err := fmt.Errorf("archive checkpoint id=%d: dead-letter repository unavailable", op.dbID)
+			settleErrs = append(settleErrs, err)
+			continue
 		}
 		logger.Warnf(ctx, "wiki ingest: dropping op %s (%s) after %d failures (limit %d)", op.KnowledgeID, op.DocTitle, count, wikiMaxFailRetries)
 		if s.deadLetterRepo != nil {
@@ -1381,11 +1387,16 @@ func (s *wikiIngestService) requeueFailedOps(ctx context.Context, payload WikiIn
 			}); dlErr != nil {
 				logger.Warnf(ctx, "wiki ingest: failed to archive op %s to dead letters: %v", op.KnowledgeID, dlErr)
 				settleErrs = append(settleErrs, fmt.Errorf("archive dead letter id=%d: %w", op.dbID, dlErr))
+				continue
 			}
 		}
 		if err := s.pendingRepo.DeleteByIDs(ctx, []int64{op.dbID}); err != nil {
 			logger.Warnf(ctx, "wiki ingest: failed to drop dead-lettered row id=%d: %v", op.dbID, err)
 			settleErrs = append(settleErrs, fmt.Errorf("drop dead-lettered row id=%d: %w", op.dbID, err))
+			continue
+		}
+		if op.Op == WikiOpIngest {
+			s.finalizeWikiSubtask(ctx, op.KnowledgeID, op.Attempt)
 		}
 	}
 	return errors.Join(settleErrs...)
@@ -1457,6 +1468,10 @@ type WikiBatchContext struct {
 	// Already Normalize()'d — consumers can assume it is one of the
 	// three valid values.
 	ExtractionGranularity types.WikiExtractionGranularity
+
+	// ExtractionParallel reuses the KB's existing LLM synthesis concurrency.
+	// The per-model governor still caps calls shared across all background jobs.
+	ExtractionParallel int
 
 	// ContentInstructions and ExtractionInstructions are KB-scoped business
 	// guidance. Stable citation, merge, taxonomy and JSON rules remain in the
@@ -2454,6 +2469,30 @@ func (s *wikiIngestService) deduplicateExtractedBatch(
 		return s.stabilizeExtractedIdentities(ctx, kbID, types.WikiPageTypeEntity, entities, nil, nil, batchCtx),
 			s.stabilizeExtractedIdentities(ctx, kbID, types.WikiPageTypeConcept, concepts, nil, nil, batchCtx)
 	}
+	// A matching URL spelling does not establish identity. Resolve occupied
+	// slugs before probing so the model can judge the old page as a candidate,
+	// rather than treating it as an unquestioned update of the same object.
+	if batchCtx != nil && batchCtx.SlugTitleMany != nil {
+		slugs := make([]string, 0, len(entities)+len(concepts))
+		for _, items := range [][]extractedItem{entities, concepts} {
+			for _, item := range items {
+				slugs = append(slugs, item.Slug)
+				slugs = append(slugs, strings.SplitN(item.Slug, "/", 2)[0]+"/"+slugify(item.Name))
+			}
+		}
+		occupied := make(map[string]string)
+		for slug, title := range batchCtx.SlugTitleMany(ctx, slugs) {
+			if title != "" {
+				occupied[slug] = normalizeWikiIdentityTitle(title)
+			}
+		}
+		for _, items := range [][]extractedItem{entities, concepts} {
+			for i := range items {
+				items[i].Slug = unoccupiedWikiExtractionSlug(items[i], occupied)
+				occupied[items[i].Slug] = normalizeWikiIdentityTitle(items[i].Name)
+			}
+		}
+	}
 
 	// Build the candidate set: for each new item, ask the repo for
 	// the top-K trigram-similar pages and union the results. Dedup by
@@ -2740,8 +2779,21 @@ func (s *wikiIngestService) generateWithTemplateResult(
 			prompt, maskedData["CustomInstructions"], maskedData["InstructionScope"],
 		)
 	}
+	maxTokens := wikiLLMMaxTokens
+	if s.modelService != nil {
+		model, err := s.modelService.GetModelByID(ctx, chatModel.GetModelID())
+		if err != nil {
+			return wikiTemplateResult{}, fmt.Errorf("resolve wiki model output budget: %w", err)
+		}
+		if model == nil {
+			return wikiTemplateResult{}, errors.New("resolve wiki model output budget: model not found")
+		}
+		if model.Parameters.MaxOutputTokens > 0 {
+			maxTokens = model.Parameters.MaxOutputTokens
+		}
+	}
 	thinking := false
-	opts := &chat.ChatOptions{Temperature: 0.3, Thinking: &thinking, MaxTokens: wikiLLMMaxTokens}
+	opts := &chat.ChatOptions{Temperature: 0.3, Thinking: &thinking, MaxTokens: maxTokens}
 	prefixFingerprint := chat.PromptPrefixFingerprint(messages, opts)
 	warmupKey := ""
 	if promptTpl == agent.WikiPageModifyUserPrompt {

@@ -1,5 +1,11 @@
 package types
 
+import "time"
+
+// WikiIngestTaskTimeout covers extraction and page synthesis for long documents.
+// Keep every ingest trigger, including startup recovery, on the same deadline.
+const WikiIngestTaskTimeout = time.Hour
+
 // Worker-pool names are part of the runtime observability API. Each pool is
 // backed by an independent asynq.Server, so concurrency is hard-isolated
 // between pools instead of being only a weighted dequeue preference.

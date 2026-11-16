@@ -137,7 +137,7 @@ func (s *wikiIngestService) scheduleFollowUpRecheck(ctx context.Context, payload
 	t := asynq.NewTask(types.TypeWikiIngest, b,
 		asynq.Queue(types.QueueWiki),
 		asynq.MaxRetry(wikiIngestMaxRetry),
-		asynq.Timeout(60*time.Minute),
+		asynq.Timeout(types.WikiIngestTaskTimeout),
 		asynq.ProcessIn(wikiFollowUpReconcileAfter+wikiFollowUpDelay),
 		asynq.TaskID(id),
 	)

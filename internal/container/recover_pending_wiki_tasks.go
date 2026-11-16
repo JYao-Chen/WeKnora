@@ -96,7 +96,7 @@ func recoverPendingWikiTasks(db *gorm.DB, task interfaces.TaskEnqueuer) {
 		opts := []asynq.Option{
 			asynq.Queue(types.QueueWiki),
 			asynq.MaxRetry(10), // keep aligned with the wiki ingest retry policy
-			asynq.Timeout(60 * time.Minute),
+			asynq.Timeout(types.WikiIngestTaskTimeout),
 		}
 		if scope.TaskType == types.TypeWikiFinalize {
 			opts[2] = asynq.Timeout(30 * time.Minute)

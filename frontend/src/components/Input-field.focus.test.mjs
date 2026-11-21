@@ -37,6 +37,7 @@ for (const mode of ['normal', 'embedded', 'after', 'inject']) {
       blur: () => { throw new Error('sending must not blur the textarea') },
     }
     const context = {
+      submissionIssue: { value: '' }, draftOptions: { value: {} },
       props: { isReplying: ['after', 'inject'].includes(mode), canSteer: true, embeddedMode: mode === 'embedded' },
       uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
       allSelectedItems: { value: [] }, selectedModelId: { value: 'model' },
@@ -91,6 +92,7 @@ for (const embeddedMode of [false, true]) {
       let emitted
       const send = vm.runInNewContext(ts.transpile(`${sendCode}\ncreateSession`), {
         props: { embeddedMode, isReplying: true, canSteer: true },
+        submissionIssue: { value: '' }, draftOptions: { value: {} },
         uploadedAttachments: { value: [] }, uploadedImages: { value: [] },
         allSelectedItems: { value: selected },
         emit: (...args) => { emitted = args },

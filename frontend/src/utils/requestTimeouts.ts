@@ -8,10 +8,9 @@
 // some of them remembered to do.
 
 /**
- * Lower bound for any upload, regardless of size. Matches the value the skill
- * and model upload call sites already pass explicitly.
+ * Lower bound for any upload, regardless of size. Preserves the one-hour budget used by this deployment for slow uploads.
  */
-export const UPLOAD_TIMEOUT_FLOOR_MS = 5 * 60 * 1000
+export const UPLOAD_TIMEOUT_FLOOR_MS = 60 * 60 * 1000
 
 /**
  * Worst-case sustained uplink we budget for: 10MB per minute (~170KB/s).

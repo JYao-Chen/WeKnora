@@ -64,7 +64,8 @@ export function fixture(
       .replace('return __returned__', '__expose(__returned__); return __returned__')
     const require = createRequire(file)
     const compiled = evaluate(script, {
-      vue, '@/utils/assistantDataChange': dataChange, ...dependencies,
+      vue, '@/utils/assistantDataChange': dataChange,
+      '@/composables/useResponsive': { useResponsive: () => ({ isMobile: vue.ref(false) }) }, ...dependencies,
     }, name => {
       if (name.endsWith('.vue')) return { default: {} }
       if (name.startsWith('.')) return require(name)

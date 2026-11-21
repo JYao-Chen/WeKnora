@@ -57,6 +57,10 @@ import { SKILL_ICON, type MentionItem, type MentionItemType, type MentionRequest
 import { toolboxLocation } from '@/config/toolbox';
 import { supportedLevels, levelLabelKey, levelFromLegacy, clampLevel, type ReasoningLevel } from '@/utils/reasoningEffort';
 
+const mobileToolsOpen = ref(false);
+const composerFocused = ref(false);
+const draftOptions = ref<SendMessageOptions>({});
+const submissionIssue = ref('');
 const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
@@ -2092,6 +2096,8 @@ const createSession = async (
   delivery: 'inject' | 'after' = 'after',
   options: SendMessageOptions = {},
 ) => {
+  submissionIssue.value = '';
+  options = { ...draftOptions.value, ...options };
   if (props.composerLocked) {
     return;
   }
@@ -2194,6 +2200,7 @@ const createSession = async (
     settingsStore.selectedAgentSourceTenantId ?? undefined,
   );
   if (notReadyReasons.length > 0) {
+    submissionIssue.value = t('input.agentNotReadyDetail', { agentName: actualAgent.name, reasons: formatLocalizedList(notReadyReasons, locale.value) });
     showAgentNotReadyMessage(
       actualAgent,
       notReadyReasons,
@@ -2438,6 +2445,7 @@ const clearvalue = () => {
   // otherwise TDesign's autosize will call getComputedStyle on a non-Element.
   if (!getTextareaEl()) return;
   query.value = "";
+  draftOptions.value = {};
 }
 
 // Drop any pending images/attachments and stop their status polling. Used when
@@ -2767,7 +2775,8 @@ defineExpose({
    * the user lands on the branch with the original question ready to edit —
    * the whole point of branching at a user message.
    */
-  prefill(text: string) {
+  prefill(text: string, options: SendMessageOptions = {}) {
+    draftOptions.value = options;
     query.value = text;
   }
 });
@@ -2803,7 +2812,7 @@ defineExpose({
         </div>
       </div>
     </div>
-    <div class="rich-input-container" data-guide="chat-input">
+    <div class="rich-input-container" :class="{ 'composer-focused': composerFocused, 'composer-has-text': query.length > 0 }" data-guide="chat-input">
       <!-- 图片预览区域 -->
       <div v-if="uploadedImages.length > 0" class="image-preview-bar">
         <div v-for="(img, idx) in uploadedImages" :key="idx" class="image-preview-item">
@@ -2841,16 +2850,26 @@ defineExpose({
         </span>
       </div>
 
+      <p v-if="submissionIssue" class="composer-submission-error" role="alert">{{ submissionIssue }}</p>
       <!-- 实际输入框 -->
       <t-textarea ref="textareaRef" v-model="query" :placeholder="t('input.placeholder')" name="description" :autosize="true"
         @keydown="onKeydown" @input="onInput" @compositionstart="onCompositionStart" @compositionend="onCompositionEnd"
-        @paste="onPaste" />
+        @paste="onPaste" @focus="composerFocused = true; mobileToolsOpen = false" @blur="composerFocused = false" />
 
       <!-- 控制栏按文档流排列，换行时自动撑开容器 -->
-      <div class="control-bar" :class="{ 'is-embedded': embeddedMode }">
-        <!-- 左侧控制按钮 -->
+      <div class="control-bar" :class="{ 'is-embedded': embeddedMode, 'mobile-tools-open': mobileToolsOpen }">
+        <!-- Mobile quick actions stay available without expanding the settings. -->
+        <button v-if="!embeddedMode" type="button" class="mobile-composer-quick mobile-icon-button"
+          :aria-label="$t('chat.attachmentUploadTooltip')" :disabled="composerLocked"
+          @click="attachmentUploadRef?.triggerFileSelect()"><t-icon name="add" /></button>
+        <button v-if="!embeddedMode" type="button" class="mobile-composer-quick mobile-icon-button"
+          :aria-label="$t('input.knowledgeBase')" :disabled="isMentionDisabled || composerLocked"
+          @mousedown.prevent @click.stop="triggerMention"><span aria-hidden="true">@</span></button>
+        <button v-if="!embeddedMode" type="button" class="mobile-composer-more mobile-icon-button"
+          :aria-label="$t('common.more')" :aria-expanded="mobileToolsOpen" @click="mobileToolsOpen = !mobileToolsOpen">
+          <t-icon :name="mobileToolsOpen ? 'chevron-down' : 'ellipsis'" />
+        </button>
         <div class="control-left">
-          <!-- 嵌入时宿主已定好 agent/KB，只保留模型选择 -->
           <template v-if="!embeddedMode">
           <!-- Agent 模式切换按钮 -->
           <div ref="agentModeButtonRef" class="control-btn agent-mode-btn" :class="{
@@ -3107,7 +3126,7 @@ defineExpose({
             </button>
           </t-tooltip>
           <t-tooltip v-else :content="`${isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')} · Enter`">
-            <button type="button" @click="createSession(query)" class="control-btn send-btn" data-guide="chat-send"
+            <button type="button" @mousedown.prevent @click="createSession(query)" class="control-btn send-btn" data-guide="chat-send"
               :disabled="!query.trim() || composerLocked" :class="{ 'disabled': !query.trim() || composerLocked }"
               :aria-label="isReplying && canSteer ? $t('input.steerAfter') : $t('input.send')">
               <t-icon name="arrow-up" />

@@ -6299,6 +6299,7 @@ export default {
     pickFailed: '無法打開所選路徑',
     messages: {
       createFailed: '建立會話失敗',
+      navigationError: '會話已建立，但對話頁面未能打開。請重試。',
       createError: '建立會話失敗，請稍後重試'
     }
   },
@@ -6507,6 +6508,10 @@ export default {
     back: '返回'
   },
   common: {
+    contents: '目錄',
+    more: '更多',
+    zoomIn: '放大',
+    zoomOut: '縮小',
     add: '新增',
     me: '我',
     confirm: '確認',

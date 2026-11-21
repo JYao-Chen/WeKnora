@@ -18,6 +18,10 @@ import { useUIStore } from '@/stores/ui'
 import type { SpotlightGuideStep } from '@/types/spotlightGuide'
 
 const uiStore = useUIStore()
+function revealNavigation() {
+  if (window.matchMedia('(max-width: 767px)').matches) window.dispatchEvent(new Event('weknora:open-mobile-navigation'))
+  else uiStore.expandSidebar()
+}
 const assistant = useAssistantStore()
 const active = ref(false)
 const assistantOnly = ref(false)
@@ -39,26 +43,26 @@ const steps = computed<SpotlightGuideStep[]>(() => assistantOnly.value ? [assist
     key: 'knowledge',
     target: '[data-guide="nav-knowledge-bases"]',
     placement: 'right',
-    before: () => uiStore.expandSidebar(),
+    before: revealNavigation,
   },
   {
     key: 'agents',
     target: '[data-guide="nav-agents"]',
     placement: 'right',
     optional: true,
-    before: () => uiStore.expandSidebar(),
+    before: revealNavigation,
   },
   {
     key: 'chat',
     target: '[data-guide="nav-creatChat"]',
     placement: 'right',
-    before: () => uiStore.expandSidebar(),
+    before: revealNavigation,
   },
   {
     key: 'settings',
     target: '[data-guide="user-menu"]',
     placement: 'right',
-    before: () => uiStore.expandSidebar(),
+    before: revealNavigation,
   },
   {
     key: 'models',

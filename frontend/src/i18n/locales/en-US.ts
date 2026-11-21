@@ -3070,6 +3070,10 @@ export default {
     }
   },
   common: {
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    more: 'More actions',
+    contents: 'Contents',
     add: 'Add',
     me: 'Me',
     confirm: 'Confirm',
@@ -3347,6 +3351,7 @@ export default {
     pickFailed: 'Could not open the selected path',
     messages: {
       createFailed: 'Failed to create session',
+      navigationError: 'The conversation was created, but its page could not open. Retry to continue.',
       createError: 'Failed to create session, please try again later'
     }
   },

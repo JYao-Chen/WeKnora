@@ -19,6 +19,7 @@ import (
 	"github.com/Tencent/WeKnora/internal/application/service/retriever"
 	"github.com/Tencent/WeKnora/internal/common"
 	werrors "github.com/Tencent/WeKnora/internal/errors"
+	"github.com/Tencent/WeKnora/internal/infrastructure/checkpoint"
 	"github.com/Tencent/WeKnora/internal/infrastructure/chunker"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser"
 	"github.com/Tencent/WeKnora/internal/infrastructure/docparser/anydoc"
@@ -4476,6 +4477,13 @@ func (s *knowledgeService) callDocReaderWithTimeout(
 	defer cancel()
 
 	start := time.Now()
+	// URLs may change their content; only uploaded immutable file inputs are reused.
+	key := docparser.ReadCheckpointKey(req)
+	var saved types.ReadResult
+	if len(req.FileContent) > 0 && checkpoint.Load("parsed-v090", key, &saved) && saved.Error == "" {
+		logger.Infof(ctx, "[convert] resuming saved parser result for %q", req.FileName)
+		return &saved, nil
+	}
 	result, err := reader.Read(callCtx, req)
 	elapsed := time.Since(start)
 	if err != nil {
@@ -4488,6 +4496,11 @@ func (s *knowledgeService) callDocReaderWithTimeout(
 			return nil, fmt.Errorf("docreader call timeout after %s: %w", timeout, err)
 		}
 		return nil, err
+	}
+	if len(req.FileContent) > 0 && result != nil && result.Error == "" && result.ImageDirPath == "" {
+		if saveErr := checkpoint.Save("parsed-v090", key, result); saveErr != nil {
+			logger.Warnf(ctx, "Parser checkpoint save failed: %v", saveErr)
+		}
 	}
 	logger.Infof(ctx, "[convert] docreader call ok in %s for %q", elapsed, req.FileName)
 	return result, nil

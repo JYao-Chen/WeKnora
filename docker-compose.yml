@@ -271,6 +271,7 @@ services:
       - OLLAMA_OPTIONAL=${OLLAMA_OPTIONAL:-true}
       # 批量 embedding 大小
       - BATCH_EMBED_SIZE=${BATCH_EMBED_SIZE:-}
+      - WEKNORA_EMBEDDING_TPM=${WEKNORA_EMBEDDING_TPM:-}
       # VLM 单次 HTTP 请求超时（秒，默认 180）
       - VLM_HTTP_TIMEOUT_SECONDS=${VLM_HTTP_TIMEOUT_SECONDS:-}
       # LLM 流原始转储（排查上下文问题；1 启用，默认目录 ~/.weknora/investigate/llm-stream）
@@ -330,6 +331,7 @@ services:
       - WEKNORA_DOCUMENT_PROCESS_TIMEOUT=${WEKNORA_DOCUMENT_PROCESS_TIMEOUT:-}
       # 单次 DocReader RPC 超时（默认 30m，须小于上一项）
       - WEKNORA_DOCREADER_CALL_TIMEOUT=${WEKNORA_DOCREADER_CALL_TIMEOUT:-}
+      - WEKNORA_PROCESSING_CHECKPOINT_DIR=${WEKNORA_PROCESSING_CHECKPOINT_DIR:-}
       # 自建 PaddleOCR-VL HTTP 请求超时（Go duration，默认 1000s）
       - WEKNORA_PADDLEOCR_VL_TIMEOUT=${WEKNORA_PADDLEOCR_VL_TIMEOUT:-}
       # 知识库巡检回收（回收卡在 processing 的脏数据；false 禁用，不建议）
